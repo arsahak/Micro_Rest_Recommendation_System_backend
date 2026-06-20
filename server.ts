@@ -27,6 +27,13 @@ import reviewRoutes from "./routes/review";
 import chatbotRoutes from "./routes/chatbot";
 import knowledgeBaseRoutes from "./routes/knowledgeBase";
 
+// Fatigue Monitor / Micro-Rest Recommendation routes
+import participantRoutes from "./routes/participants";
+import baselineRoutes from "./routes/baseline";
+import checkinRoutes from "./routes/checkins";
+import feedbackRoutes from "./routes/feedback";
+import researchDashboardRoutes from "./routes/researchDashboard";
+
 // Load environment variables
 dotenv.config();
 
@@ -140,6 +147,13 @@ app.use("/api/reviews", reviewRoutes);
 // AI Chatbot routes
 app.use("/api/chatbot", chatbotRoutes);
 app.use("/api/knowledge-base", knowledgeBaseRoutes);
+
+// Fatigue Monitor / Micro-Rest Recommendation routes
+app.use("/api/participants", participantRoutes);
+app.use("/api/baseline", baselineRoutes);
+app.use("/api/checkins", checkinRoutes);
+app.use("/api/feedback", feedbackRoutes);
+app.use("/api/research-dashboard", researchDashboardRoutes);
 
 // 404 Handler
 app.use((_req: Request, res: Response) => {
