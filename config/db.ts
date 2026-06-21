@@ -1,4 +1,14 @@
+import dns from "dns";
 import mongoose from "mongoose";
+
+// Some local/sandboxed dev environments ship a DNS resolver that fails to
+// resolve mongodb+srv:// SRV records (querySrv ECONNREFUSED) even though the
+// OS-level resolver works fine. Forcing Node to use public DNS servers fixes it.
+try {
+  dns.setServers(["8.8.8.8", "1.1.1.1"]);
+} catch {
+  // non-fatal — fall back to system default resolver
+}
 
 // Mongoose connection caching for serverless
 let isConnected = false;
