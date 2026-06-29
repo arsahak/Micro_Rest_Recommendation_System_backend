@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "type-check": "tsc --noEmit",
     "create-super-user": "ts-node scripts/createSuperUser.ts",
+    "seed-participants": "ts-node scripts/seedParticipants.ts",
     "test-image-upload": "ts-node scripts/testImageUpload.ts",
     "test-ai-setup": "ts-node scripts/testAISetup.ts"
   },

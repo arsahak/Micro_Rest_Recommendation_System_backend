@@ -33,6 +33,7 @@ import baselineRoutes from "./routes/baseline";
 import checkinRoutes from "./routes/checkins";
 import feedbackRoutes from "./routes/feedback";
 import researchDashboardRoutes from "./routes/researchDashboard";
+import sessionRoutes from "./routes/sessions";
 
 // Load environment variables
 dotenv.config();
@@ -154,6 +155,7 @@ app.use("/api/baseline", baselineRoutes);
 app.use("/api/checkins", checkinRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api/research-dashboard", researchDashboardRoutes);
+app.use("/api/sessions", sessionRoutes);
 
 // 404 Handler
 app.use((_req: Request, res: Response) => {

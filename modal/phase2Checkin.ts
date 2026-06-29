@@ -3,6 +3,8 @@ import mongoose, { Document, Schema } from "mongoose";
 export interface IPhase2Checkin extends Document {
   checkin_id: string;
   participant_id: string;
+  session_id?: string;
+  session_mode: "Baseline" | "Intervention";
   date: Date;
   time_point: string;
   current_hr: number;
@@ -39,6 +41,8 @@ const phase2CheckinSchema = new Schema<IPhase2Checkin>(
       trim: true,
       ref: "Participant",
     },
+    session_id: { type: String, ref: "Session" },
+    session_mode: { type: String, enum: ["Baseline", "Intervention"], required: true, default: "Intervention" },
     date: { type: Date, required: true, default: Date.now },
     time_point: {
       type: String,

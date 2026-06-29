@@ -138,7 +138,6 @@ const customerSchema = new Schema<ICustomer>(
 );
 
 // Indexes
-customerSchema.index({ email: 1 });
 customerSchema.index({ resetPasswordToken: 1 });
 
 // Hash password before saving

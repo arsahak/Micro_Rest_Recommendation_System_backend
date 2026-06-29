@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import BaselineSummary from "../modal/baselineSummary";
 import Phase2Checkin from "../modal/phase2Checkin";
+import Session from "../modal/session";
+import NotificationLog from "../modal/notificationLog";
 import { calculateFatigueRisk } from "../services/fatigueCalculationService";
 
 export const getCheckins = async (req: Request, res: Response): Promise<void> => {
@@ -67,15 +69,24 @@ export const createCheckin = async (req: Request, res: Response): Promise<void> 
       eye_strain_score,
       body_discomfort_score,
       sitting_duration_min,
+      screen_exposure_min,
       fatigue_score,
       kss_score,
     });
 
     const checkin_id = `CHK-${pid}-${uuidv4().slice(0, 8).toUpperCase()}`;
 
+    // Section 19.1: Baseline vs Intervention is a hard switch driven by the active session
+    // (falls back to "Intervention" if no session is active, so check-ins outside a tracked
+    // session still behave as before this feature was added).
+    const activeSession = await Session.findOne({ participant_id: pid, status: "active" });
+    const session_mode = activeSession?.session_mode ?? "Intervention";
+
     const checkin = await Phase2Checkin.create({
       checkin_id,
       participant_id: pid,
+      session_id: activeSession?.session_id,
+      session_mode,
       date: date ? new Date(date) : new Date(),
       time_point,
       current_hr,
@@ -87,6 +98,25 @@ export const createCheckin = async (req: Request, res: Response): Promise<void> 
       screen_exposure_min,
       ...calc,
     });
+
+    if (activeSession) {
+      await Session.updateOne(
+        { session_id: activeSession.session_id },
+        {
+          $set: {
+            last_checkin_time: new Date(),
+            previous_risk_level: calc.risk_level,
+            previous_dominant_issue: calc.dominant_issue,
+            checkin_snooze_count: 0,
+          },
+          $inc: { total_checkins: 1, consecutive_high_risk_count: calc.risk_level === "High" ? 1 : -activeSession.consecutive_high_risk_count },
+        }
+      );
+      await NotificationLog.updateMany(
+        { session_id: activeSession.session_id, notification_type: "quick_checkin_notification", user_action: { $in: ["pending", "snoozed"] } },
+        { $set: { user_action: "acted" } }
+      );
+    }
 
     res.status(201).json({
       success: true,
@@ -104,7 +134,7 @@ export const createCheckin = async (req: Request, res: Response): Promise<void> 
 
 export const previewCalculation = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { participant_id, current_hr, fatigue_score, kss_score, eye_strain_score, body_discomfort_score, sitting_duration_min } = req.body;
+    const { participant_id, current_hr, fatigue_score, kss_score, eye_strain_score, body_discomfort_score, sitting_duration_min, screen_exposure_min } = req.body;
 
     if (!participant_id || current_hr == null) {
       res.status(400).json({ success: false, message: "participant_id and current_hr are required" });
@@ -123,6 +153,7 @@ export const previewCalculation = async (req: Request, res: Response): Promise<v
       eye_strain_score: eye_strain_score ?? 1,
       body_discomfort_score: body_discomfort_score ?? 1,
       sitting_duration_min: sitting_duration_min ?? 0,
+      screen_exposure_min,
       fatigue_score: fatigue_score ?? 1,
       kss_score: kss_score ?? 1,
     });

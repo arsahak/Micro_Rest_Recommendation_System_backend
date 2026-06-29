@@ -6,6 +6,7 @@ export interface FatigueInputs {
   eye_strain_score: number;
   body_discomfort_score: number;
   sitting_duration_min: number;
+  screen_exposure_min?: number;
   fatigue_score: number;
   kss_score: number;
 }
@@ -65,6 +66,7 @@ const PROMPT_MAP: Record<string, PromptData> = {
   },
 };
 
+// Categorical risk flags (0/1/2) — retained for the existing per-factor breakdown UI.
 function scoreEyeRisk(eye: number): RiskScore {
   if (eye >= 4) return 2;
   if (eye >= 3) return 1;
@@ -101,29 +103,68 @@ function scoreHRRisk(dev: number): RiskScore {
   return 0;
 }
 
-// Tie-priority order: Visual Fatigue > Posture Discomfort > Long Sitting > Physiological Stress > General Fatigue
-function resolveDominantIssue(
-  eyeR: RiskScore,
-  disR: RiskScore,
-  sitR: RiskScore,
-  hrR: RiskScore,
-  fatR: RiskScore,
-  kssR: RiskScore,
-  riskLevel: "Low" | "Medium" | "High"
-): string {
+// Normalization to a 0-100 component score, per the spec's weighted risk formula.
+function normalizeScale(value: number, min: number, max: number): number {
+  return Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+}
+
+// Sitting/screen bucket anchors (Low/Mild/Moderate/High -> 10/35/65/90).
+function sittingScreenBucket(minutes: number): number {
+  if (minutes >= 90) return 90;
+  if (minutes >= 60) return 65;
+  if (minutes >= 30) return 35;
+  return 10;
+}
+
+// HR deviation component, banded per spec table with linear interpolation within each band.
+function hrDeviationComponent(absDeviation: number): number {
+  if (absDeviation <= 5) return (absDeviation / 5) * 20;
+  if (absDeviation <= 10) return 21 + ((absDeviation - 6) / 4) * 19;
+  if (absDeviation <= 20) return 41 + ((absDeviation - 11) / 9) * 29;
+  return Math.min(100, 71 + ((absDeviation - 21) / 14) * 29);
+}
+
+interface NormalizedComponents {
+  fatigueComponent: number;
+  sleepinessComponent: number;
+  eyeComponent: number;
+  discomfortComponent: number;
+  sittingScreenComponent: number;
+  hrComponent: number;
+}
+
+// Dominant source: highest-scoring component wins. HR deviation can only dominate
+// when combined with elevated fatigue or discomfort, never on its own.
+function resolveDominantIssue(components: NormalizedComponents, riskLevel: "Low" | "Medium" | "High"): string {
   if (riskLevel === "Low") return "No Immediate Risk";
 
-  const maxScore = Math.max(eyeR, disR, sitR, hrR, fatR, kssR);
+  const { fatigueComponent, sleepinessComponent, eyeComponent, discomfortComponent, sittingScreenComponent, hrComponent } = components;
+  const generalFatigueComponent = (fatigueComponent + sleepinessComponent) / 2;
+  const hrEligible = fatigueComponent >= 35 || discomfortComponent >= 35;
 
-  if (eyeR === maxScore) return "Visual Fatigue";
-  if (disR === maxScore) return "Posture Discomfort";
-  if (sitR === maxScore) return "Long Sitting";
-  if (hrR === maxScore) return "Physiological Stress";
-  return "General Fatigue / Sleepiness";
+  const candidates: Array<[string, number]> = [
+    ["Visual Fatigue", eyeComponent],
+    ["Posture Discomfort", discomfortComponent],
+    ["Long Sitting", sittingScreenComponent],
+    ["General Fatigue / Sleepiness", generalFatigueComponent],
+  ];
+  if (hrEligible) candidates.push(["Physiological Stress", hrComponent]);
+
+  candidates.sort((a, b) => b[1] - a[1]);
+  return candidates[0][0];
 }
 
 export function calculateFatigueRisk(inputs: FatigueInputs): FatigueCalculationResult {
-  const { current_hr, baseline_hr, eye_strain_score, body_discomfort_score, sitting_duration_min, fatigue_score, kss_score } = inputs;
+  const {
+    current_hr,
+    baseline_hr,
+    eye_strain_score,
+    body_discomfort_score,
+    sitting_duration_min,
+    screen_exposure_min,
+    fatigue_score,
+    kss_score,
+  } = inputs;
 
   const hrDeviation = current_hr - baseline_hr;
 
@@ -134,10 +175,26 @@ export function calculateFatigueRisk(inputs: FatigueInputs): FatigueCalculationR
   const kssR = scoreKSSRisk(kss_score);
   const hrR = scoreHRRisk(hrDeviation);
 
-  const total = eyeR + disR + sitR + fatR + kssR + hrR;
-  const riskLevel: "Low" | "Medium" | "High" = total >= 6 ? "High" : total >= 3 ? "Medium" : "Low";
+  const components: NormalizedComponents = {
+    fatigueComponent: normalizeScale(fatigue_score, 1, 7),
+    sleepinessComponent: normalizeScale(kss_score, 1, 9),
+    eyeComponent: normalizeScale(eye_strain_score, 1, 5),
+    discomfortComponent: normalizeScale(body_discomfort_score, 1, 5),
+    sittingScreenComponent: Math.max(sittingScreenBucket(sitting_duration_min), sittingScreenBucket(screen_exposure_min ?? 0)),
+    hrComponent: hrDeviationComponent(Math.abs(hrDeviation)),
+  };
 
-  const dominantIssue = resolveDominantIssue(eyeR, disR, sitR, hrR, fatR, kssR, riskLevel);
+  const totalRiskScore =
+    0.2 * components.fatigueComponent +
+    0.15 * components.sleepinessComponent +
+    0.2 * components.eyeComponent +
+    0.2 * components.discomfortComponent +
+    0.15 * components.sittingScreenComponent +
+    0.1 * components.hrComponent;
+
+  const riskLevel: "Low" | "Medium" | "High" = totalRiskScore >= 65 ? "High" : totalRiskScore >= 35 ? "Medium" : "Low";
+
+  const dominantIssue = resolveDominantIssue(components, riskLevel);
   const promptData = PROMPT_MAP[dominantIssue];
 
   return {
@@ -148,7 +205,7 @@ export function calculateFatigueRisk(inputs: FatigueInputs): FatigueCalculationR
     fatigue_risk: fatR,
     kss_risk: kssR,
     hr_risk: hrR,
-    total_risk_score: total,
+    total_risk_score: Math.round(totalRiskScore * 10) / 10,
     risk_level: riskLevel,
     dominant_issue: dominantIssue,
     ...promptData,

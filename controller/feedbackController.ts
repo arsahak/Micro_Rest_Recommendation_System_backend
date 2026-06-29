@@ -2,6 +2,8 @@ import { Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import FeedbackLog from "../modal/feedbackLog";
 import Phase2Checkin from "../modal/phase2Checkin";
+import Session from "../modal/session";
+import NotificationLog from "../modal/notificationLog";
 
 export const getFeedbackLogs = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -50,6 +52,30 @@ export const createFeedback = async (req: Request, res: Response): Promise<void>
       recovered,
       comment,
     });
+
+    // Section 16/17 follow-up: rest outcome and perceived recovery drive the next
+    // check-in interval via Session.previous_rest_status (read by computeCheckinStatus).
+    if (checkin.session_id) {
+      const feelsWorse = completed && recovered != null && recovered <= 2;
+      const restStatus: "completed" | "completed_worse" | "skipped" = !completed ? "skipped" : feelsWorse ? "completed_worse" : "completed";
+
+      const sessionUpdate: Record<string, unknown> = { previous_rest_status: restStatus };
+      if (completed) {
+        sessionUpdate.sitting_duration_min = 0;
+        sessionUpdate.screen_exposure_min = 0;
+        sessionUpdate.last_rest_time = new Date();
+      }
+
+      await Session.updateOne(
+        { session_id: checkin.session_id },
+        { $set: sessionUpdate, ...(completed ? { $inc: { total_rest_actions: 1 } } : {}) }
+      );
+
+      await NotificationLog.updateMany(
+        { session_id: checkin.session_id, notification_type: "micro_rest_notification", user_action: { $in: ["pending", "snoozed"] } },
+        { $set: { user_action: completed ? "acted" : "dismissed" } }
+      );
+    }
 
     res.status(201).json({ success: true, message: "Feedback recorded", data: feedback });
   } catch (error) {
