@@ -28,6 +28,7 @@ import chatbotRoutes from "./routes/chatbot";
 import knowledgeBaseRoutes from "./routes/knowledgeBase";
 
 // Fatigue Monitor / Micro-Rest Recommendation routes
+import participantAuthRoutes from "./routes/participantAuth";
 import participantRoutes from "./routes/participants";
 import baselineRoutes from "./routes/baseline";
 import checkinRoutes from "./routes/checkins";
@@ -150,6 +151,7 @@ app.use("/api/chatbot", chatbotRoutes);
 app.use("/api/knowledge-base", knowledgeBaseRoutes);
 
 // Fatigue Monitor / Micro-Rest Recommendation routes
+app.use("/api/participant-auth", participantAuthRoutes);
 app.use("/api/participants", participantRoutes);
 app.use("/api/baseline", baselineRoutes);
 app.use("/api/checkins", checkinRoutes);

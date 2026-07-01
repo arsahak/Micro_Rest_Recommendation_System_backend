@@ -1,3 +1,4 @@
+import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import connectDB from "../config/db";
@@ -9,9 +10,10 @@ dotenv.config();
 
 const DEFAULT_PARTICIPANT_IDS = ["P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08", "P09", "P10"];
 
-// A neutral "before work" resting baseline — used only as a usable default so every
-// seeded participant can immediately take check-ins; real studies should overwrite
-// this via the baseline entry form per Section 3.2.
+// Default PIN for all participants — participants can change it after first login
+// if the auth controller is extended to support PIN change.
+const DEFAULT_PIN = "20262026@";
+
 const DEFAULT_BASELINE_ENTRY = {
   time_point: "Before Work" as const,
   hr: 70,
@@ -28,18 +30,29 @@ const seedParticipants = async (): Promise<void> => {
     await connectDB();
     console.log("✅ Connected to database");
 
+    const pinHash = await bcrypt.hash(DEFAULT_PIN, 10);
+
     let participantsCreated = 0;
     let participantsSkipped = 0;
+    let pinsSet = 0;
     let baselinesCreated = 0;
     let baselinesSkipped = 0;
 
     for (const participant_id of DEFAULT_PARTICIPANT_IDS) {
-      const existingParticipant = await Participant.findOne({ participant_id });
-      if (existingParticipant) {
-        participantsSkipped++;
-      } else {
-        await Participant.create({ participant_id, study_phase: "Baseline" });
+      const existing = await Participant.findOne({ participant_id }).select("+pin_hash");
+
+      if (!existing) {
+        await Participant.create({ participant_id, study_phase: "Baseline", pin_hash: pinHash });
         participantsCreated++;
+        pinsSet++;
+      } else {
+        participantsSkipped++;
+        // Set default PIN for participants that don't have one yet
+        if (!existing.pin_hash) {
+          existing.pin_hash = pinHash;
+          await existing.save();
+          pinsSet++;
+        }
       }
 
       const existingSummary = await BaselineSummary.findOne({ participant_id });
@@ -65,8 +78,9 @@ const seedParticipants = async (): Promise<void> => {
 
     console.log("========================================");
     console.log(`✅ Participants: ${participantsCreated} created, ${participantsSkipped} already existed`);
+    console.log(`✅ PINs set: ${pinsSet} (default PIN: ${DEFAULT_PIN})`);
     console.log(`✅ Baselines: ${baselinesCreated} created, ${baselinesSkipped} already existed`);
-    console.log(`   Participant IDs: ${DEFAULT_PARTICIPANT_IDS.join(", ")}`);
+    console.log(`   IDs: ${DEFAULT_PARTICIPANT_IDS.join(", ")}`);
     console.log("========================================");
 
     await mongoose.connection.close();
