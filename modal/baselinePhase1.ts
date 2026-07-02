@@ -28,7 +28,7 @@ const baselinePhase1Schema = new Schema<IBaselinePhase1>(
     time_point: {
       type: String,
       required: [true, "Time point is required"],
-      enum: ["Before Work", "11:00 AM", "1:00 PM", "3:00 PM", "After Work"],
+      trim: true,
     },
     hr: { type: Number, required: true, min: 30, max: 220 },
     fatigue_score: { type: Number, required: true, min: 1, max: 7 },
